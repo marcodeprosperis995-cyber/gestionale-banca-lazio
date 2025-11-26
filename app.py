@@ -51,7 +51,7 @@ def crea_word_in_memoria(dati):
 # Intestazione con Logo
 col1, col2 = st.columns([1, 4])
 with col1:
-    if os.path.exists("logo.png"):
+    if os.path.exists("logo.jpg"):
         st.image("logo.png", width=100)
     else:
         st.write("🏦")

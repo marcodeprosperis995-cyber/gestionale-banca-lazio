@@ -1,7 +1,8 @@
-streamlit
-pandas
-openpyxl
-fpdf
+import streamlit as st
+import pandas as pd
+from fpdf import FPDF
+import datetime
+import os
 
 # --- CONFIGURAZIONE ---
 st.set_page_config(page_title="Gestionale Banca Centro Lazio", page_icon="🏦")

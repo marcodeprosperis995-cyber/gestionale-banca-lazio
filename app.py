@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
-from docx import Document
-import io
+from fpdf import FPDF
 import datetime
 import os
 
@@ -12,43 +11,73 @@ COLORE_AZIENDALE = "#0056b3"
 # --- FUNZIONI ---
 def carica_dati():
     if os.path.exists("database.xlsx"):
-        return pd.read_excel("database.xlsx")
+        df = pd.read_excel("database.xlsx")
+        # Crea etichetta per ricerca
+        df['Etichetta'] = df['Nome'].astype(str) + " " + df['Cognome'].astype(str)
+        return df
     return None
 
-def crea_word_in_memoria(dati):
-    doc = Document()
-    # Intestazione
-    doc.add_heading('Scheda Personale - Banca Centro Lazio', 0)
+def crea_pdf_in_memoria(dati):
+    # Inizializza PDF
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+
+    # 1. INSERIMENTO LOGO NEL PDF (Se esiste)
+    if os.path.exists("logo.jpg"):
+        # x=10, y=8, w=30 (dimensioni e posizione logo nel foglio)
+        pdf.image("logo.jpg", x=10, y=8, w=30)
+        pdf.ln(20) # Vai a capo dopo il logo
+
+    # 2. TITOLO
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, txt="Scheda Personale - Banca Centro Lazio", ln=True, align='C')
+    pdf.ln(10) # Spazio vuoto
+
+    # 3. DATI DEL DIPENDENTE
+    pdf.set_font("Arial", size=12)
     
-    p = doc.add_paragraph()
-    p.add_run(f"Nome e Cognome: ").bold = True
-    p.add_run(f"{dati['Nome']} {dati['Cognome']}\n")
-    p.add_run(f"Ruolo: ").bold = True
-    p.add_run(f"{dati['Ruolo']}\n")
-    p.add_run(f"Email: ").bold = True
-    p.add_run(f"{dati['Email']}\n")
+    # Funzione per scrivere riga: Etichetta in grassetto, Valore normale
+    def scrivi_riga_pdf(etichetta, valore):
+        pdf.set_font("Arial", 'B', 12)
+        pdf.cell(50, 10, etichetta, border=0)
+        pdf.set_font("Arial", '', 12)
+        # Usiamo latin-1 per gestire gli accenti italiani
+        valore_str = str(valore).encode('latin-1', 'replace').decode('latin-1')
+        pdf.cell(0, 10, valore_str, border=0, ln=True)
+
+    scrivi_riga_pdf("Nome e Cognome:", f"{dati['Nome']} {dati['Cognome']}")
+    scrivi_riga_pdf("Ruolo:", dati['Ruolo'])
+    scrivi_riga_pdf("Email:", dati['Email'])
     tel = dati['Telefono'] if 'Telefono' in dati else "N/D"
-    p.add_run(f"Telefono: ").bold = True
-    p.add_run(f"{tel}")
+    scrivi_riga_pdf("Telefono:", tel)
+
+    # 4. TESTO LEGALE
+    pdf.ln(10)
+    pdf.multi_cell(0, 10, "Si certifica che i dati sopra riportati sono corretti e verificati dal sistema.")
+
+    # 5. FIRME
+    pdf.ln(30) # Molto spazio prima della firma
     
-    doc.add_paragraph("\n" * 2)
-    doc.add_paragraph("Si certifica che i dati sopra riportati sono corretti.")
-    
-    doc.add_paragraph("\n" * 4)
-    paragrafo_firme = doc.add_paragraph()
     data_oggi = datetime.date.today().strftime('%d/%m/%Y')
-    paragrafo_firme.add_run(f"Data: {data_oggi}").bold = True
-    paragrafo_firme.add_run("\t\t\tFirma Responsabile: __________________")
     
-    # Salva in memoria (RAM) invece che su disco
-    buffer = io.BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    return buffer
+    # Riga Data
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(20, 10, "Data: ", border=0)
+    pdf.set_font("Arial", '', 12)
+    pdf.cell(80, 10, data_oggi, border=0)
+    
+    # Riga Firma
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(40, 10, "Firma Responsabile:", border=0)
+    pdf.cell(0, 10, "_"*30, border=0, ln=True) # Linea tratteggiata
 
-# --- INTERFACCIA GRAFICA ---
+    # Restituisce il contenuto PDF come stringa binaria
+    return pdf.output(dest='S').encode('latin-1')
 
-# Intestazione con Logo
+# --- INTERFACCIA WEB ---
+
+# Intestazione con Logo (VISIBILE SUL SITO)
 col1, col2 = st.columns([1, 4])
 with col1:
     if os.path.exists("logo.jpg"):
@@ -61,45 +90,41 @@ with col2:
 
 st.divider()
 
-# Caricamento Excel
+# Logica Applicazione
 df = carica_dati()
 
 if df is None:
-    st.error("⚠️ File 'database.xlsx' non trovato! Assicurati di averlo caricato su GitHub.")
+    st.error("⚠️ File 'database.xlsx' mancante!")
 else:
-    # Barra di ricerca
-    ricerca = st.text_input("🔍 Cerca dipendente (Nome o Cognome)", placeholder="Es. Rossi...")
+    # Menu a tendina con ricerca
+    lista_nomi = ["Seleziona un candidato..."] + df['Etichetta'].tolist()
+    
+    scelta_utente = st.selectbox(
+        "🔍 Cerca dipendente (inizia a scrivere):",
+        options=lista_nomi
+    )
 
-    if ricerca:
-        # Filtra dati
-        risultati = df[
-            df['Nome'].astype(str).str.lower().str.contains(ricerca.lower()) | 
-            df['Cognome'].astype(str).str.lower().str.contains(ricerca.lower())
-        ]
+    if scelta_utente != "Seleziona un candidato...":
+        riga = df[df['Etichetta'] == scelta_utente].iloc[0]
         
-        if risultati.empty:
-            st.warning("Nessun risultato trovato.")
-        else:
-            st.success(f"Trovati {len(risultati)} risultati:")
+        st.success("Dipendente trovato")
+        
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.subheader(f"{riga['Nome']} {riga['Cognome']}")
+            st.write(f"**Ruolo:** {riga['Ruolo']}")
+            st.write(f"**Email:** {riga['Email']}")
+        
+        with c2:
+            st.write("")
+            # Genera PDF
+            file_pdf = crea_pdf_in_memoria(riga)
             
-            for index, row in risultati.iterrows():
-                with st.container():
-                    # Creiamo due colonne per ogni risultato: Testo a sinistra, Bottone a destra
-                    c1, c2 = st.columns([3, 1])
-                    with c1:
-                        st.subheader(f"{row['Nome']} {row['Cognome']}")
-                        st.write(f"**Ruolo:** {row['Ruolo']} | **Email:** {row['Email']}")
-                    with c2:
-                        st.write("") # Spaziatura
-                        # Prepariamo il file
-                        file_word = crea_word_in_memoria(row)
-                        
-                        # Tasto Download
-                        st.download_button(
-                            label="📥 Scarica Word",
-                            data=file_word,
-                            file_name=f"Scheda_{row['Nome']}_{row['Cognome']}.docx",
-                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            key=index
-                        )
-                    st.divider()
+            # Tasto Download PDF
+            st.download_button(
+                label="📥 Scarica PDF",
+                data=file_pdf,
+                file_name=f"Scheda_{riga['Nome']}_{riga['Cognome']}.pdf",
+                mime="application/pdf",
+                type="primary"
+            )

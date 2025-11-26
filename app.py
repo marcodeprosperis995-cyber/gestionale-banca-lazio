@@ -52,7 +52,7 @@ def crea_word_in_memoria(dati):
 col1, col2 = st.columns([1, 4])
 with col1:
     if os.path.exists("logo.jpg"):
-        st.image("logo.png", width=100)
+        st.image("logo.jpg", width=100)
     else:
         st.write("🏦")
 with col2:
